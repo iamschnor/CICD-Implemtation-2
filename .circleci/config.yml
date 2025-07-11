@@ -1,8 +1,7 @@
 version: 2.1
 
-# Define orbs used in this configuration
 orbs:
-  aws-cli: circleci/aws-cli@2.0.0 # Official CircleCI Orb for AWS CLI
+  aws-cli: circleci/aws-cli@2.0.0
 
 executors:
   node-executor:
@@ -16,7 +15,7 @@ jobs:
     steps:
       - checkout
       - run: npm ci
-      - persist_to_workspace: # Persist node_modules for other jobs
+      - persist_to_workspace:
           root: .
           paths:
             - node_modules
@@ -25,7 +24,7 @@ jobs:
     executor: node-executor
     steps:
       - checkout
-      - attach_workspace: # Attach node_modules from install job
+      - attach_workspace:
           at: .
       - run: npm run lint
       - run: npm run format:check
@@ -34,13 +33,13 @@ jobs:
     executor: node-executor
     steps:
       - checkout
-      - attach_workspace: # Attach node_modules from install job
+      - attach_workspace:
           at: .
       - run: npm run test
 
   docker-build-and-push:
     docker:
-      - image: cimg/base:stable # cimg/base is suitable for Docker commands
+      - image: cimg/base:stable
     steps:
       - checkout
       - setup_remote_docker
@@ -48,23 +47,16 @@ jobs:
           name: Log in to Docker Hub
           command: |
             echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-          # IMPORTANT: Ensure DOCKERHUB_USERNAME and DOCKERHUB_PASSWORD are set as environment variables in CircleCI.
       - run:
           name: Build and push Docker image
           command: |
-            # Ensure this image name matches your Docker Hub repository and the image name Render expects
-            IMAGE_NAME="mrlamar237/cicd-pipeline-demo" # Your Docker Hub username/repo name
+            IMAGE_NAME="mrlamar237/cicd-pipeline-demo"
             docker build -t ${IMAGE_NAME}:latest .
             docker push ${IMAGE_NAME}:latest
-            # You might also push with a unique tag like CIRCLE_SHA1 for versioning:
-            # docker build -t ${IMAGE_NAME}:${CIRCLE_SHA1} .
-            # docker push ${IMAGE_NAME}:${CIRCLE_SHA1}
 
-  # NEW JOB: Deploy to AWS Elastic Beanstalk
   deploy-to-aws-elastic-beanstalk:
-    executor: node-executor # Using node-executor as it's sufficient for this job
+    executor: node-executor
     parameters:
-      # These parameters will be passed from the workflow
       eb_application_name:
         type: string
         description: "Name of the Elastic Beanstalk application"
@@ -75,22 +67,22 @@ jobs:
         type: string
         description: "S3 bucket to store deployment artifacts"
     steps:
-      - checkout # Checkout the code to access Dockerrun.aws.json
-      - aws-cli/setup # Setup AWS CLI using the orb (handles authentication via env vars)
+      - checkout
+      - aws-cli/setup
       - run:
-          name: Create Dockerrun.aws.json # Dynamically create the Dockerrun.aws.json file
+          name: Create Dockerrun.aws.json
           command: |
             # This file tells Elastic Beanstalk how to run your Docker image
             cat <<EOF > Dockerrun.aws.json
             {
               "AWSEBDockerrunVersion": "1",
               "Image": {
-                "Name": "mrlamar237/cicd-pipeline-demo:latest", # Ensure this matches your Docker Hub image name
+                "Name": "mrlamar237/cicd-pipeline-demo:latest",
                 "Update": "true"
               },
               "Ports": [
                 {
-                  "ContainerPort": 3000 # Must match the port your Node.js app listens on
+                  "ContainerPort": 3000
                 }
               ],
               "Volumes": [],
@@ -100,23 +92,19 @@ jobs:
       - run:
           name: Deploy to AWS Elastic Beanstalk
           command: |
-            # Retrieve parameters passed from the workflow
-            APP_NAME="<< parameters.eb_application_name >>"
-            ENV_NAME="<< parameters.eb_environment_name >>"
-            S3_BUCKET="<< parameters.s3_bucket_name >>"
-            VERSION_LABEL="app-$(date +%s)-${CIRCLE_SHA1}" # Create a unique version label
+            # ESCAPED: Use '\<<' to escape the literal '<<' characters
+            APP_NAME="\<< parameters.eb_application_name >>"
+            ENV_NAME="\<< parameters.eb_environment_name >>"
+            S3_BUCKET="\<< parameters.s3_bucket_name >>"
+            VERSION_LABEL="app-$(date +%s)-${CIRCLE_SHA1}"
 
             echo "Packaging deployment artifact..."
-            # Package the application and Dockerrun.aws.json into a .zip file
-            # Exclude .git folder and node_modules as they are handled by the Docker image
             zip -r deploy.zip . -x "*.git*" "node_modules/*"
 
             echo "Uploading deploy.zip to S3://${S3_BUCKET}/${APP_NAME}/${VERSION_LABEL}.zip"
-            # Upload the .zip file to the specified S3 bucket
             aws s3 cp deploy.zip s3://${S3_BUCKET}/${APP_NAME}/${VERSION_LABEL}.zip
 
             echo "Creating new application version in Elastic Beanstalk..."
-            # Create a new application version in Elastic Beanstalk
             aws elasticbeanstalk create-application-version \
               --application-name ${APP_NAME} \
               --version-label ${VERSION_LABEL} \
@@ -124,7 +112,6 @@ jobs:
               --auto-create-application
 
             echo "Updating Elastic Beanstalk environment ${ENV_NAME} with version ${VERSION_LABEL}..."
-            # Update the Elastic Beanstalk environment to use the new version
             aws elasticbeanstalk update-environment \
               --environment-name ${ENV_NAME} \
               --version-label ${VERSION_LABEL}
@@ -147,14 +134,13 @@ workflows:
       - docker-build-and-push:
           requires:
             - test
-      - deploy-to-aws-elastic-beanstalk: # NEW: Add the AWS deployment job to the workflow
+      - deploy-to-aws-elastic-beanstalk:
           requires:
-            - docker-build-and-push # This job runs only after the Docker image is built and pushed
-          filters: # Optional: Only deploy to AWS on pushes to the master branch
+            - docker-build-and-push
+          filters:
             branches:
               only:
-                - master # Adjust to 'main' if that's your primary branch
-          # Parameters for AWS Elastic Beanstalk deployment
-          eb_application_name: "cicd-pipeline-demo-app" # <<-- REPLACE with your EB Application Name
-          eb_environment_name: "cicd-pipeline-demo-env" # <<-- REPLACE with your EB Environment Name
-          s3_bucket_name: "mrlamar237-cicd-eb-deployments" # <<-- REPLACE with a UNIQUE S3 bucket name you create
+                - master
+          eb_application_name: "cicd-pipeline-demo-app" # Updated value
+          eb_environment_name: "cicd-pipeline-demo-app" # Updated value
+          s3_bucket_name: "mrlamar237-cicd-eb-deployments" # Updated value
