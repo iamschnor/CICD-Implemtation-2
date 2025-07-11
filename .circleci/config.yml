@@ -141,6 +141,6 @@ workflows:
             branches:
               only:
                 - master
-          eb_application_name: "cicd-pipeline-demo-app" # Updated value
-          eb_environment_name: "cicd-pipeline-demo-app" # Updated value
-          s3_bucket_name: "mrlamar237-cicd-eb-deployments" # Updated value
+          eb_application_name: "cicd-pipeline-demo-app"
+          eb_environment_name: "Cicd-pipeline-demo-app-env" # Updated value
+          s3_bucket_name: "mrlamar237-cicd-eb-deployments"
